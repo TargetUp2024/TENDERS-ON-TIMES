@@ -3,7 +3,7 @@ name: Run Tender On Times Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 1 * * *"  # Runs every day at 01:00 UTC
+    - cron: "0 1 * * *"  # Every day at 01:00 UTC
 
 jobs:
   run-bot:
@@ -22,6 +22,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install openpyxl
+
+      - name: Install Tesseract OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara
 
       - name: Run Tender Bot
         env:
@@ -30,7 +36,7 @@ jobs:
           python scripts/tender_bot.py
 
       - name: Upload downloaded files
-        if: always()  # Run even if the bot fails
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tender_downloads
