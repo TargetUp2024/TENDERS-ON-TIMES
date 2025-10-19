@@ -1,0 +1,44 @@
+name: Run Tender On Times Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *"  # Every day at 01:00 UTC
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install openpyxl
+
+      - name: Install Tesseract OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara
+
+      - name: Run Tender Bot
+        env:
+          PYTHONUNBUFFERED: 1
+        run: |
+          python scripts/tender_bot.py
+
+      - name: Upload downloaded files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tender_downloads
+          path: /home/runner/downloads
+          if-no-files-found: ignore
