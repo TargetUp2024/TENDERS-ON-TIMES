@@ -1,4 +1,3 @@
-import os
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -11,6 +10,7 @@ import pytesseract
 from PIL import Image
 import re
 import unicodedata
+import requests
 import json
 import time
 
@@ -21,23 +21,24 @@ pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
 
+# OCR configuration
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 OCR_LANGS = 'fra+ara+eng'
-DOWNLOAD_DIR = "/home/runner/downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # ------------------------------
 # Helper Functions
 # ------------------------------
-def log_step(msg):
-    print(f"\n🔹 {msg}\n")
-
 def clean_text(text):
     if not isinstance(text, str):
         return ""
+    # Normalize unicode
     text = unicodedata.normalize('NFKD', text)
     text = text.encode('ascii', 'ignore').decode('utf-8', 'ignore')
+    # Remove control characters
     text = re.sub(r'[\x00-\x1F\x7F-\x9F]', ' ', text)
+    # Remove extra spaces
     text = re.sub(r'\s+', ' ', text)
+    # Keep readable characters
     text = re.sub(r'[^a-zA-Z0-9À-ž.,;:?!\'"()\-/%€$@#\s]', '', text)
     return text.strip()
 
@@ -90,15 +91,14 @@ def extract_text_from_file(file_bytes, file_name):
 # ------------------------------
 # Fetch Tender Data
 # ------------------------------
-log_step("Fetching tender data...")
-
 today = datetime.now().strftime('%Y-%m-%d')
 yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-url = f"https://tmproject.tendersontime.org/tmpApi/tender-pull-json-targetup.php?username=targetup&key=vfsyqvdkmfgp5bk34&date={yesterday}"
 
+url = f"https://tmproject.tendersontime.org/tmpApi/tender-pull-json-targetup.php?username=targetup&key=vfsyqvdkmfgp5bk34&date={yesterday}"
 response = requests.get(url)
 data = response.json()
 
+# Prepare DataFrame
 rows = []
 for tender in data.get('data', []):
     row = {
@@ -126,27 +126,22 @@ for tender in data.get('data', []):
     rows.append(row)
 
 df = pd.DataFrame(rows)
+
+# Initialize columns for extracted text
 df['notice_text'] = ''
 df['additional_text_all'] = ''
 
 # ------------------------------
 # Extract Text from Documents
 # ------------------------------
-log_step("Extracting text from documents...")
-
 for idx, row in df.iterrows():
-    log_step(f"Processing tender {idx+1}/{len(df)}: {row['tender_notice_no']}")
-
     # Notice document
     notice_url = row['notice_document']
     try:
         r = requests.get(notice_url)
         if r.status_code == 200:
-            notice_file_name = os.path.join(DOWNLOAD_DIR, notice_url.split('/')[-1])
-            with open(notice_file_name, 'wb') as f:
-                f.write(r.content)
+            notice_file_name = notice_url.split('/')[-1]
             df.at[idx, 'notice_text'] = extract_text_from_file(r.content, notice_file_name)
-            print(f"✅ Notice document processed: {notice_file_name}")
         else:
             df.at[idx, 'notice_text'] = f"Failed to download: {r.status_code}"
     except Exception as e:
@@ -160,9 +155,7 @@ for idx, row in df.iterrows():
         try:
             r = requests.get(url)
             if r.status_code == 200:
-                file_name = os.path.join(DOWNLOAD_DIR, url.split('/')[-1].lower())
-                with open(file_name, 'wb') as f:
-                    f.write(r.content)
+                file_name = url.split('/')[-1].lower()
                 text = extract_text_from_file(r.content, file_name)
                 if file_name.endswith('.pdf'):
                     doc_type_text['PDF'].append(f"{file_name}:\n{text}")
@@ -176,12 +169,12 @@ for idx, row in df.iterrows():
                     doc_type_text['IMAGE'].append(f"{file_name}:\n{text}")
                 else:
                     doc_type_text['DOC'].append(f"[Other: {file_name}]\n{text}")
-                print(f"✅ Additional document processed: {file_name}")
             else:
                 print(f"⚠️ Failed to download {url}: {r.status_code}")
         except Exception as e:
             print(f"⚠️ Error processing {url}: {e}")
 
+    # Combine all additional text
     final_text_list = []
     for doc_type, texts in doc_type_text.items():
         if texts:
@@ -190,15 +183,21 @@ for idx, row in df.iterrows():
     df.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
 
 # ------------------------------
-# Send to n8n Webhook
+# Display the DataFrame
 # ------------------------------
-WEBHOOK_URL = "https://targetup.app.n8n.cloud/webhook/985e2b92-e43f-4551-9e2c-871a2209995a"
+
+
+WEBHOOK_URL = "https://targetup.app.n8n.cloud/webhook/985e2b92-e43f-4551-9e2c-871a2209995a" 
 
 for idx, row in df.iterrows():
     payload = row.to_dict()
-    log_step(f"Sending row {idx+1}/{len(df)} to n8n...")
+    print(f"\n🚀 Sending row {idx+1}/{len(df)} to n8n...")
+
     try:
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=120)
+        # This will wait until n8n responds
+        response = requests.post(WEBHOOK_URL, json=payload, timeout=120)  # 120s timeout in case workflow is slow
+
+        # Parse response
         try:
             response_json = response.json()
         except json.JSONDecodeError:
@@ -206,11 +205,14 @@ for idx, row in df.iterrows():
 
         if response.status_code == 200:
             print(f"✅ Row {idx+1} processed. Workflow finished.")
+            print(json.dumps(response_json, indent=4, ensure_ascii=False))
         else:
             print(f"❌ Row {idx+1} failed with status code: {response.status_code}")
             print(response.text)
+
+        # Optional: small delay between requests to avoid flooding n8n
         time.sleep(1)
+
     except Exception as e:
         print(f"❌ Error sending row {idx+1}: {e}")
 
-log_step("All rows processed.")
