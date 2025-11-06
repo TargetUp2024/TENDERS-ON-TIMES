@@ -94,9 +94,12 @@ def extract_text_from_file(file_bytes, file_name):
 today = datetime.now().strftime('%Y-%m-%d')
 yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
 
-url = f"https://tmproject.tendersontime.org/tmpApi/tender-pull-json-targetup.php?username=targetup&key=vfsyqvdkmfgp5bk34&date={yesterday}"
+BASE_URL = os.getenv("URL")
+url = f"{BASE_URL}{yesterday}" if BASE_URL.endswith("date=") else BASE_URL
 response = requests.get(url)
 data = response.json()
+
+
 
 # Prepare DataFrame
 rows = []
@@ -182,12 +185,8 @@ for idx, row in df.iterrows():
 
     df.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
 
-# ------------------------------
-# Display the DataFrame
-# ------------------------------
 
-
-WEBHOOK_URL = "https://targetup.app.n8n.cloud/webhook/985e2b92-e43f-4551-9e2c-871a2209995a" 
+WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
 for idx, row in df.iterrows():
     payload = row.to_dict()
@@ -215,4 +214,7 @@ for idx, row in df.iterrows():
 
     except Exception as e:
         print(f"❌ Error sending row {idx+1}: {e}")
+
+
+
 
