@@ -130,26 +130,58 @@ for tender in data.get('data', []):
     rows.append(row)
 
 df = pd.DataFrame(rows)
+excluded_words = [
+    # French / English equivalents
+    "construction", "construction",
+    "installation", "installation",
+    "recrutement", "recruitment",
+    "travaux", "works",
+    "fourniture", "supply",
+    "achat", "purchase",
+    "equipement", "equipment",
+    "maintenance", "maintenance",
+    "works", "works",
+    "goods", "goods",
+    "supply", "supply",
+    "acquisition", "acquisition",
+    "Recruitment", "recruitment",
+    "nettoyage", "cleaning",
+    "gardiennage", "guarding",
+    "archives", "archives",
+    "Equipment", "equipment",
+    "ÉQUIPEMENT", "equipment",
+    "équipement", "equipment",
+    "construire", "build",
+    "recrute", "recruits"
+]
+
+
+if not df.empty:
+    df_filtered = df[~df["title"].str.lower().str.contains("|".join(excluded_words), na=False)].reset_index(drop=True)
+else:
+    df_filtered = df
+
+print(f"✅ Found {len(df_filtered)} relevant tenders after filtering.")
 
 # Initialize columns for extracted text
-df['notice_text'] = ''
-df['additional_text_all'] = ''
+df_filtered['notice_text'] = ''
+df_filtered['additional_text_all'] = ''
 
 # ------------------------------
 # Extract Text from Documents
 # ------------------------------
-for idx, row in df.iterrows():
+for idx, row in df_filtered.iterrows():
     # Notice document
     notice_url = row['notice_document']
     try:
         r = requests.get(notice_url)
         if r.status_code == 200:
             notice_file_name = notice_url.split('/')[-1]
-            df.at[idx, 'notice_text'] = extract_text_from_file(r.content, notice_file_name)
+            df_filtered.at[idx, 'notice_text'] = extract_text_from_file(r.content, notice_file_name)
         else:
-            df.at[idx, 'notice_text'] = f"Failed to download: {r.status_code}"
+            df_filtered.at[idx, 'notice_text'] = f"Failed to download: {r.status_code}"
     except Exception as e:
-        df.at[idx, 'notice_text'] = f"Error: {str(e)}"
+        df_filtered.at[idx, 'notice_text'] = f"Error: {str(e)}"
 
     # Additional documents
     add_docs_urls = row['additional_documents'].split(', ') if row['additional_documents'] else []
@@ -184,14 +216,14 @@ for idx, row in df.iterrows():
         if texts:
             final_text_list.append(f"Name of the documents {doc_type}:\n" + "\n---\n".join(texts))
 
-    df.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
+    df_filtered.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
 
 
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-for idx, row in df.iterrows():
+for idx, row in df_filtered.iterrows():
     payload = row.to_dict()
-    print(f"\n🚀 Sending row {idx+1}/{len(df)} to n8n...")
+    print(f"\n🚀 Sending row {idx+1}/{len(df_filtered)} to n8n...")
 
     try:
         # This will wait until n8n responds
