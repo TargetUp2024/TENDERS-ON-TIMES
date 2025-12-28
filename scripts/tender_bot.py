@@ -10,7 +10,6 @@ import pytesseract
 from PIL import Image
 import re
 import unicodedata
-import requests
 import json
 import time
 import os
@@ -97,10 +96,14 @@ yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
 
 BASE_URL = os.getenv("URL")
 url = f"{BASE_URL}{yesterday}" if BASE_URL.endswith("date=") else BASE_URL
-response = requests.get(url)
-data = response.json()
+print(f"🌍 Fetching data from: {url}")
 
-
+try:
+    response = requests.get(url)
+    data = response.json()
+except Exception as e:
+    print(f"❌ Error fetching API data: {e}")
+    data = {}
 
 # Prepare DataFrame
 rows = []
@@ -154,7 +157,6 @@ excluded_words = [
     "construire", "build",
     "recrute", "recruits"
 ]
-
 
 if not df.empty:
     df_filtered = df[~df["title"].str.lower().str.contains("|".join(excluded_words), na=False)].reset_index(drop=True)
@@ -218,36 +220,48 @@ for idx, row in df_filtered.iterrows():
 
     df_filtered.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
 
-
+# ------------------------------
+# WEBHOOK SENDING (OPTIMIZED FOR SLOW AI)
+# ------------------------------
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-for idx, row in df_filtered.iterrows():
-    payload = row.to_dict()
-    print(f"\n🚀 Sending row {idx+1}/{len(df_filtered)} to n8n...")
+if WEBHOOK_URL:
+    for idx, row in df_filtered.iterrows():
+        payload = row.to_dict()
+        print(f"\n🚀 Sending row {idx+1}/{len(df_filtered)} to n8n...")
 
-    try:
-        # This will wait until n8n responds
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=120)  # 120s timeout in case workflow is slow
-
-        # Parse response
         try:
-            response_json = response.json()
-        except json.JSONDecodeError:
-            response_json = response.text
+            # ------------------------------------------------------------------
+            # CHANGED: Timeout increased to 600s (10 minutes) for slow AI models
+            # ------------------------------------------------------------------
+            response = requests.post(WEBHOOK_URL, json=payload, timeout=600)
 
-        if response.status_code == 200:
-            print(f"✅ Row {idx+1} processed. Workflow finished.")
-            print(json.dumps(response_json, indent=4, ensure_ascii=False))
-        else:
-            print(f"❌ Row {idx+1} failed with status code: {response.status_code}")
-            print(response.text)
+            if response.status_code == 200:
+                print(f"✅ Row {idx+1} processed successfully.")
+                try:
+                    # Try to print JSON response if available
+                    print(json.dumps(response.json(), indent=4, ensure_ascii=False))
+                except:
+                    pass
+            else:
+                print(f"❌ Row {idx+1} failed with status code: {response.status_code}")
+                print(response.text)
 
-        # Optional: small delay between requests to avoid flooding n8n
+        except requests.exceptions.ReadTimeout:
+            # ------------------------------------------------------------------
+            # NEW: Handle ReadTimeout specifically without crashing
+            # ------------------------------------------------------------------
+            print(f"⚠️ TIMEOUT: Row {idx+1} took > 600s. AI is likely still processing. Moving to next row.")
+            
+        except requests.exceptions.ConnectionError:
+            print(f"❌ Connection Error sending row {idx+1}: Could not reach n8n server.")
+            
+        except Exception as e:
+            print(f"❌ General Error sending row {idx+1}: {e}")
+
+        # Optional: small delay between requests
         time.sleep(1)
 
-    except Exception as e:
-        print(f"❌ Error sending row {idx+1}: {e}")
-
-
-
-
+    print("\n✅ All rows processed (sent or timed out safely)!")
+else:
+    print("\n⚠️ No N8N_WEBHOOK_URL found in environment variables. Skipping webhook.")
