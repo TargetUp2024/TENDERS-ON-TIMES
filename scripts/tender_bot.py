@@ -158,32 +158,32 @@ excluded_words = [
     "recrute", "recruits"
 ]
 
-if not df.empty:
-    df_filtered = df[~df["title"].str.lower().str.contains("|".join(excluded_words), na=False)].reset_index(drop=True)
-else:
-    df_filtered = df
+#if not df.empty:
+    #df_filtered = df[~df["title"].str.lower().str.contains("|".join(excluded_words), na=False)].reset_index(drop=True)
+#else:
+    #df_filtered = df
 
-print(f"✅ Found {len(df_filtered)} relevant tenders after filtering.")
+print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
 # Initialize columns for extracted text
-df_filtered['notice_text'] = ''
-df_filtered['additional_text_all'] = ''
+df['notice_text'] = ''
+df['additional_text_all'] = ''
 
 # ------------------------------
 # Extract Text from Documents
 # ------------------------------
-for idx, row in df_filtered.iterrows():
+for idx, row in df.iterrows():
     # Notice document
     notice_url = row['notice_document']
     try:
         r = requests.get(notice_url)
         if r.status_code == 200:
             notice_file_name = notice_url.split('/')[-1]
-            df_filtered.at[idx, 'notice_text'] = extract_text_from_file(r.content, notice_file_name)
+            df.at[idx, 'notice_text'] = extract_text_from_file(r.content, notice_file_name)
         else:
-            df_filtered.at[idx, 'notice_text'] = f"Failed to download: {r.status_code}"
+            df.at[idx, 'notice_text'] = f"Failed to download: {r.status_code}"
     except Exception as e:
-        df_filtered.at[idx, 'notice_text'] = f"Error: {str(e)}"
+        df.at[idx, 'notice_text'] = f"Error: {str(e)}"
 
     # Additional documents
     add_docs_urls = row['additional_documents'].split(', ') if row['additional_documents'] else []
@@ -218,7 +218,7 @@ for idx, row in df_filtered.iterrows():
         if texts:
             final_text_list.append(f"Name of the documents {doc_type}:\n" + "\n---\n".join(texts))
 
-    df_filtered.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
+    df.at[idx, 'additional_text_all'] = "\n\n".join(final_text_list)
 
 # ------------------------------
 # WEBHOOK SENDING (OPTIMIZED FOR SLOW AI)
@@ -226,9 +226,9 @@ for idx, row in df_filtered.iterrows():
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
 if WEBHOOK_URL:
-    for idx, row in df_filtered.iterrows():
+    for idx, row in df.iterrows():
         payload = row.to_dict()
-        print(f"\n🚀 Sending row {idx+1}/{len(df_filtered)} to n8n...")
+        print(f"\n🚀 Sending row {idx+1}/{len(df)} to n8n...")
 
         try:
             # ------------------------------------------------------------------
